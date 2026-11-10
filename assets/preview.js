@@ -48,7 +48,7 @@
   }
   document.addEventListener('click', function (e) {
     var c = e.target.closest('[data-checkout]');
-    if (c) { e.preventDefault(); e.stopPropagation(); modal('Checkout goes to Shopify', 'This is a design preview. On casafrescameals.com this button takes the cart straight to Shopify checkout, with Shop Pay, pickup and delivery options as they are set up today.'); }
+    if (c) { e.preventDefault(); e.stopPropagation(); modal('Checkout goes to Shopify', 'This is a design preview. On the live store this button takes the cart straight to Shopify checkout, with Shop Pay, pickup and delivery options as they are set up today.'); }
     var a = e.target.closest('a[href]');
     if (a && /\/cart\/add|\/account/.test(a.getAttribute('href') || '')) { e.preventDefault(); modal('Live store only', 'Accounts live on the real store.'); }
   }, true);

@@ -62,11 +62,14 @@
     $$('[data-cart-total]').forEach((el) => { el.textContent = formatMoney(c.total_price); });
     $$('[data-cart-label]').forEach((el) => { el.textContent = c.item_count === 1 ? t('meal_one') : t('meal_other'); });
     const bar = $('[data-cart-bar]');
-    if (bar) { bar.classList.toggle('is-visible', c.item_count > 0); document.body.classList.toggle('has-cart-bar', c.item_count > 0); }
+    if (bar) {
+      if (!bar.dataset.ready) { bar.dataset.ready = '1'; if (c.item_count > 0) bar.classList.add('is-instant'); requestAnimationFrame(() => requestAnimationFrame(() => bar.classList.remove('is-instant'))); }
+      bar.classList.toggle('is-visible', c.item_count > 0); document.body.classList.toggle('has-cart-bar', c.item_count > 0);
+    }
   });
   document.addEventListener('cart:updated', (e) => {
     if (!e.detail.added) return;
-    $$('.cart-btn').forEach((b) => { b.classList.remove('is-bump'); void b.offsetWidth; b.classList.add('is-bump'); });
+    $$('.cart-btn, .cart-pill').forEach((b) => { b.classList.remove('is-bump'); void b.offsetWidth; b.classList.add('is-bump'); });
   });
 
   /* ---------- line renderer (drawer + cart page) ---------- */
@@ -273,6 +276,8 @@
   const header = $('[data-header]');
   const setH = () => header && doc.style.setProperty('--header-h', header.offsetHeight + 'px');
   setH(); window.addEventListener('resize', setH, { passive: true });
+  if (header && 'ResizeObserver' in window) new ResizeObserver(setH).observe(header);
+  if (document.fonts) document.fonts.ready.then(setH);
   let ticking = false;
   window.addEventListener('scroll', () => {
     if (ticking) return; ticking = true;
@@ -300,6 +305,56 @@
   $$('form[data-facets]').forEach((f) => f.addEventListener('submit', () => {
     $$('input, select', f).forEach((i) => { if ((i.type === 'number' || i.tagName === 'SELECT') && !i.value) i.disabled = true; });
   }));
+
+  /* ---------- collection inline search ---------- */
+  $$('[data-coll-switch]').forEach((sw) => {
+    const box = $('[data-coll-search]', sw), input = $('[data-coll-search-input]', sw), openBtn = $('[data-coll-search-open]', sw);
+    const grid = $('[data-grid]'), empty = $('[data-coll-search-empty]'), emptyText = $('[data-coll-search-empty-text]'), more = $('[data-coll-search-more]');
+    const counts = $$('.toolbar__count, .coll-count');
+    const original = counts.map((c) => c.textContent);
+    const norm = (v) => String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').trim();
+    let sugT, sugCtl;
+    function apply() {
+      const q = norm(input.value);
+      const cards = grid ? $$('.meal', grid) : [];
+      let n = 0;
+      cards.forEach((c) => { const hit = !q || q.split(/\s+/).every((w) => norm(c.dataset.title).includes(w)); c.classList.toggle('is-search-hidden', !hit); if (hit && !c.hidden) n++; });
+      counts.forEach((c, i) => { c.textContent = q ? (n === 1 ? t('meals_count_one', { n }) : String(original[i]).replace(/^\d+/, n)) : original[i]; });
+      if (empty) { empty.hidden = !q || n > 0; if (emptyText) emptyText.textContent = t('search_none', { q: input.value.trim() }); }
+      if (box.dataset.paginated === 'true' && more) suggest(q, cards);
+    }
+    function suggest(q, cards) {
+      clearTimeout(sugT); if (sugCtl) sugCtl.abort();
+      if (q.length < 2) { more.hidden = true; return; }
+      sugT = setTimeout(async () => {
+        try {
+          sugCtl = new AbortController();
+          const u = box.dataset.suggestUrl + '?q=' + encodeURIComponent(q) + '&resources[type]=product&resources[limit]=10&resources[options][fields]=title';
+          const j = await fetch(u, { signal: sugCtl.signal }).then((r) => r.json());
+          const shown = new Set(cards.filter((c) => !c.classList.contains('is-search-hidden')).map((c) => c.dataset.title));
+          const items = ((j.resources || {}).results || {}).products || [];
+          const extra = items.filter((p) => !shown.has(p.title));
+          $('ul', more).innerHTML = extra.map((p) => `<li><a href="${esc(p.url)}">${p.image ? `<img src="${esc(sizedImg(p.image, 120))}" alt="" width="56" height="56" loading="lazy">` : ''}${esc(p.title)}<span>${esc(p.price ? formatMoney(Math.round(parseFloat(p.price) * 100)) : '')}</span></a></li>`).join('');
+          more.hidden = extra.length === 0;
+          if (extra.length && empty) empty.hidden = true;
+        } catch (e) { /* optional */ }
+      }, 220);
+    }
+    function open() {
+      sw.classList.add('is-searching'); openBtn.setAttribute('aria-expanded', 'true');
+      input.tabIndex = 0; $$('[data-coll-search-close]', sw).forEach((b) => { b.tabIndex = 0; });
+      setTimeout(() => input.focus({ preventScroll: true }), reduce ? 0 : 160);
+    }
+    function close() {
+      input.value = ''; apply(); sw.classList.remove('is-searching'); openBtn.setAttribute('aria-expanded', 'false');
+      input.tabIndex = -1; $$('[data-coll-search-close]', sw).forEach((b) => { b.tabIndex = -1; });
+      if (more) more.hidden = true; openBtn.focus({ preventScroll: true });
+    }
+    openBtn.addEventListener('click', () => (sw.classList.contains('is-searching') ? input.focus() : open()));
+    input.addEventListener('input', apply);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } if (e.key === 'Enter') e.preventDefault(); });
+    document.addEventListener('click', (e) => { if (e.target.closest('[data-coll-search-close]')) close(); });
+  });
 
   /* ---------- gallery dots ---------- */
   $$('[data-gallery]').forEach((g) => {
